@@ -23,15 +23,6 @@ class FM(nn.Module):
     def __init__(self):
         super(FM, self).__init__()
 
-    def forward(self, inputs):
-        fm_input = inputs
-
-        square_of_sum = torch.pow(torch.sum(fm_input, dim=1, keepdim=True), 2)
-        sum_of_square = torch.sum(fm_input * fm_input, dim=1, keepdim=True)
-        cross_term = square_of_sum - sum_of_square
-        cross_term = 0.5 * torch.sum(cross_term, dim=2, keepdim=False)
-
-        return cross_term
 
 
 class BiInteractionPooling(nn.Module):
@@ -51,14 +42,6 @@ class BiInteractionPooling(nn.Module):
     def __init__(self):
         super(BiInteractionPooling, self).__init__()
 
-    def forward(self, inputs):
-        concated_embeds_value = inputs
-        square_of_sum = torch.pow(
-            torch.sum(concated_embeds_value, dim=1, keepdim=True), 2)
-        sum_of_square = torch.sum(
-            concated_embeds_value * concated_embeds_value, dim=1, keepdim=True)
-        cross_term = 0.5 * (square_of_sum - sum_of_square)
-        return cross_term
 
 
 class SENETLayer(nn.Module):
@@ -90,15 +73,6 @@ Tongwen](https://arxiv.org/pdf/1905.09433.pdf)
         )
         self.to(device)
 
-    def forward(self, inputs):
-        if len(inputs.shape) != 3:
-            raise ValueError(
-                "Unexpected inputs dimensions %d, expect to be 3 dimensions" % (len(inputs.shape)))
-        Z = torch.mean(inputs, dim=-1, out=None)
-        A = self.excitation(Z)
-        V = torch.mul(inputs, torch.unsqueeze(A, dim=2))
-
-        return V
 
 
 class BilinearInteraction(nn.Module):
@@ -137,23 +111,6 @@ Tongwen](https://arxiv.org/pdf/1905.09433.pdf)
             raise NotImplementedError
         self.to(device)
 
-    def forward(self, inputs):
-        if len(inputs.shape) != 3:
-            raise ValueError(
-                "Unexpected inputs dimensions %d, expect to be 3 dimensions" % (len(inputs.shape)))
-        inputs = torch.split(inputs, 1, dim=1)
-        if self.bilinear_type == "all":
-            p = [torch.mul(self.bilinear(v_i), v_j)
-                 for v_i, v_j in itertools.combinations(inputs, 2)]
-        elif self.bilinear_type == "each":
-            p = [torch.mul(self.bilinear[i](inputs[i]), inputs[j])
-                 for i, j in itertools.combinations(range(len(inputs)), 2)]
-        elif self.bilinear_type == "interaction":
-            p = [torch.mul(bilinear(v[0]), v[1])
-                 for v, bilinear in zip(itertools.combinations(inputs, 2), self.bilinear)]
-        else:
-            raise NotImplementedError
-        return torch.cat(p, dim=1)
 
 
 class CIN(nn.Module):
@@ -204,48 +161,6 @@ class CIN(nn.Module):
         #             nn.init.normal_(tensor.weight, mean=0, std=init_std)
         self.to(device)
 
-    def forward(self, inputs):
-        if len(inputs.shape) != 3:
-            raise ValueError(
-                "Unexpected inputs dimensions %d, expect to be 3 dimensions" % (len(inputs.shape)))
-        batch_size = inputs.shape[0]
-        dim = inputs.shape[-1]
-        hidden_nn_layers = [inputs]
-        final_result = []
-
-        for i, size in enumerate(self.layer_size):
-            # x^(k-1) * x^0
-            x = torch.einsum(
-                'bhd,bmd->bhmd', hidden_nn_layers[-1], hidden_nn_layers[0])
-            # x.shape = (batch_size , hi * m, dim)
-            x = x.reshape(
-                batch_size, hidden_nn_layers[-1].shape[1] * hidden_nn_layers[0].shape[1], dim)
-            # x.shape = (batch_size , hi, dim)
-            x = self.conv1ds[i](x)
-
-            if self.activation is None or self.activation == 'linear':
-                curr_out = x
-            else:
-                curr_out = self.activation(x)
-
-            if self.split_half:
-                if i != len(self.layer_size) - 1:
-                    next_hidden, direct_connect = torch.split(
-                        curr_out, 2 * [size // 2], 1)
-                else:
-                    direct_connect = curr_out
-                    next_hidden = 0
-            else:
-                direct_connect = curr_out
-                next_hidden = curr_out
-
-            final_result.append(direct_connect)
-            hidden_nn_layers.append(next_hidden)
-
-        result = torch.cat(final_result, dim=1)
-        result = torch.sum(result, -1)
-
-        return result
 
 
 class AFMLayer(nn.Module):
@@ -296,33 +211,6 @@ class AFMLayer(nn.Module):
 
         self.to(device)
 
-    def forward(self, inputs):
-        embeds_vec_list = inputs
-        row = []
-        col = []
-
-        for r, c in itertools.combinations(embeds_vec_list, 2):
-            row.append(r)
-            col.append(c)
-
-        p = torch.cat(row, dim=1)
-        q = torch.cat(col, dim=1)
-        inner_product = p * q
-
-        bi_interaction = inner_product
-        attention_temp = F.relu(torch.tensordot(
-            bi_interaction, self.attention_W, dims=([-1], [0])) + self.attention_b)
-
-        self.normalized_att_score = F.softmax(torch.tensordot(
-            attention_temp, self.projection_h, dims=([-1], [0])), dim=1)
-        attention_output = torch.sum(
-            self.normalized_att_score * bi_interaction, dim=1)
-
-        attention_output = self.dropout(attention_output)  # training
-
-        afm_out = torch.tensordot(
-            attention_output, self.projection_p, dims=([-1], [0]))
-        return afm_out
 
 
 class InteractingLayer(nn.Module):
@@ -363,35 +251,6 @@ class InteractingLayer(nn.Module):
 
         self.to(device)
 
-    def forward(self, inputs):
-
-        if len(inputs.shape) != 3:
-            raise ValueError(
-                "Unexpected inputs dimensions %d, expect to be 3 dimensions" % (len(inputs.shape)))
-
-        # None F D
-        querys = torch.tensordot(inputs, self.W_Query, dims=([-1], [0]))
-        keys = torch.tensordot(inputs, self.W_key, dims=([-1], [0]))
-        values = torch.tensordot(inputs, self.W_Value, dims=([-1], [0]))
-
-        # head_num None F D/head_num
-        querys = torch.stack(torch.split(querys, self.att_embedding_size, dim=2))
-        keys = torch.stack(torch.split(keys, self.att_embedding_size, dim=2))
-        values = torch.stack(torch.split(values, self.att_embedding_size, dim=2))
-
-        inner_product = torch.einsum('bnik,bnjk->bnij', querys, keys)  # head_num None F F
-        if self.scaling:
-            inner_product /= self.att_embedding_size ** 0.5
-        self.normalized_att_scores = F.softmax(inner_product, dim=-1)  # head_num None F F
-        result = torch.matmul(self.normalized_att_scores, values)  # head_num None F D/head_num
-
-        result = torch.cat(torch.split(result, 1, ), dim=-1)
-        result = torch.squeeze(result, dim=0)  # None F D
-        if self.use_res:
-            result += torch.tensordot(inputs, self.W_Res, dims=([-1], [0]))
-        result = F.relu(result)
-
-        return result
 
 
 class CrossNet(nn.Module):
@@ -435,22 +294,6 @@ class CrossNet(nn.Module):
 
         self.to(device)
 
-    def forward(self, inputs):
-        x_0 = inputs.unsqueeze(2)
-        x_l = x_0
-        for i in range(self.layer_num):
-            if self.parameterization == 'vector':
-                xl_w = torch.tensordot(x_l, self.kernels[i], dims=([1], [0]))
-                dot_ = torch.matmul(x_0, xl_w)
-                x_l = dot_ + self.bias[i] + x_l
-            elif self.parameterization == 'matrix':
-                xl_w = torch.matmul(self.kernels[i], x_l)  # W * xi  (bs, in_features, 1)
-                dot_ = xl_w + self.bias[i]  # W * xi + b
-                x_l = x_0 * dot_ + x_l  # x0 · (W * xi + b) +xl  Hadamard-product
-            else:  # error
-                raise ValueError("parameterization should be 'vector' or 'matrix'")
-        x_l = torch.squeeze(x_l, dim=2)
-        return x_l
 
 
 class CrossNetMix(nn.Module):
@@ -496,42 +339,6 @@ class CrossNetMix(nn.Module):
 
         self.to(device)
 
-    def forward(self, inputs):
-        x_0 = inputs.unsqueeze(2)  # (bs, in_features, 1)
-        x_l = x_0
-        for i in range(self.layer_num):
-            output_of_experts = []
-            gating_score_of_experts = []
-            for expert_id in range(self.num_experts):
-                # (1) G(x_l)
-                # compute the gating score by x_l
-                gating_score_of_experts.append(self.gating[expert_id](x_l.squeeze(2)))
-
-                # (2) E(x_l)
-                # project the input x_l to $\mathbb{R}^{r}$
-                v_x = torch.matmul(self.V_list[i][expert_id].t(), x_l)  # (bs, low_rank, 1)
-
-                # nonlinear activation in low rank space
-                v_x = torch.tanh(v_x)
-                v_x = torch.matmul(self.C_list[i][expert_id], v_x)
-                v_x = torch.tanh(v_x)
-
-                # project back to $\mathbb{R}^{d}$
-                uv_x = torch.matmul(self.U_list[i][expert_id], v_x)  # (bs, in_features, 1)
-
-                dot_ = uv_x + self.bias[i]
-                dot_ = x_0 * dot_  # Hadamard-product
-
-                output_of_experts.append(dot_.squeeze(2))
-
-            # (3) mixture of low-rank experts
-            output_of_experts = torch.stack(output_of_experts, 2)  # (bs, in_features, num_experts)
-            gating_score_of_experts = torch.stack(gating_score_of_experts, 1)  # (bs, num_experts, 1)
-            moe_out = torch.matmul(output_of_experts, gating_score_of_experts.softmax(1))
-            x_l = moe_out + x_l  # (bs, in_features, 1)
-
-        x_l = x_l.squeeze()  # (bs, in_features)
-        return x_l
 
 
 class InnerProductLayer(nn.Module):
@@ -554,27 +361,6 @@ class InnerProductLayer(nn.Module):
         self.reduce_sum = reduce_sum
         self.to(device)
 
-    def forward(self, inputs):
-
-        embed_list = inputs
-        row = []
-        col = []
-        num_inputs = len(embed_list)
-
-        for i in range(num_inputs - 1):
-            for j in range(i + 1, num_inputs):
-                row.append(i)
-                col.append(j)
-        p = torch.cat([embed_list[idx]
-                       for idx in row], dim=1)  # batch num_pairs k
-        q = torch.cat([embed_list[idx]
-                       for idx in col], dim=1)
-
-        inner_product = p * q
-        if self.reduce_sum:
-            inner_product = torch.sum(
-                inner_product, dim=2, keepdim=True)
-        return inner_product
 
 
 class OutterProductLayer(nn.Module):
@@ -613,63 +399,6 @@ class OutterProductLayer(nn.Module):
 
         self.to(device)
 
-    def forward(self, inputs):
-        embed_list = inputs
-        row = []
-        col = []
-        num_inputs = len(embed_list)
-        for i in range(num_inputs - 1):
-            for j in range(i + 1, num_inputs):
-                row.append(i)
-                col.append(j)
-        p = torch.cat([embed_list[idx]
-                       for idx in row], dim=1)  # batch num_pairs k
-        q = torch.cat([embed_list[idx] for idx in col], dim=1)
-
-        # -------------------------
-        if self.kernel_type == 'mat':
-            p.unsqueeze_(dim=1)
-            # k     k* pair* k
-            # batch * pair
-            kp = torch.sum(
-
-                # batch * pair * k
-
-                torch.mul(
-
-                    # batch * pair * k
-
-                    torch.transpose(
-
-                        # batch * k * pair
-
-                        torch.sum(
-
-                            # batch * k * pair * k
-
-                            torch.mul(
-
-                                p, self.kernel),
-
-                            dim=-1),
-
-                        2, 1),
-
-                    q),
-
-                dim=-1)
-        else:
-            # 1 * pair * (k or 1)
-
-            k = torch.unsqueeze(self.kernel, 0)
-
-            # batch * pair
-
-            kp = torch.sum(p * q * k, dim=-1)
-
-            # p q # b * p * k
-
-        return kp
 
 
 class ConvLayer(nn.Module):
@@ -713,8 +442,6 @@ class ConvLayer(nn.Module):
         self.to(device)
         self.filed_shape = filed_shape
 
-    def forward(self, inputs):
-        return self.conv_layer(inputs)
 
 
 class LogTransformLayer(nn.Module):
@@ -742,16 +469,3 @@ class LogTransformLayer(nn.Module):
         nn.init.normal_(self.ltl_weights, mean=0.0, std=0.1)
         nn.init.zeros_(self.ltl_biases, )
 
-    def forward(self, inputs):
-        # Avoid numeric overflow
-        afn_input = torch.clamp(torch.abs(inputs), min=1e-7, max=float("Inf"))
-        # Transpose to shape: ``(batch_size,embedding_size,field_size)``
-        afn_input_trans = torch.transpose(afn_input, 1, 2)
-        # Logarithmic transformation layer
-        ltl_result = torch.log(afn_input_trans)
-        ltl_result = self.bn[0](ltl_result)
-        ltl_result = torch.matmul(ltl_result, self.ltl_weights) + self.ltl_biases
-        ltl_result = torch.exp(ltl_result)
-        ltl_result = self.bn[1](ltl_result)
-        ltl_result = torch.flatten(ltl_result, start_dim=1)
-        return ltl_result

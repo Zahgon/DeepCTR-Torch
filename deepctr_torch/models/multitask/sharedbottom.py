@@ -84,21 +84,3 @@ class SharedBottom(BaseModel):
             l2=l2_reg_dnn)
         self.to(device)
 
-    def forward(self, X):
-        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns,
-                                                                                  self.embedding_dict)
-        dnn_input = combined_dnn_input(sparse_embedding_list, dense_value_list)
-        shared_bottom_output = self.bottom_dnn(dnn_input)
-
-        # tower dnn (task-specific)
-        task_outs = []
-        for i in range(self.num_tasks):
-            if len(self.tower_dnn_hidden_units) > 0:
-                tower_dnn_out = self.tower_dnn[i](shared_bottom_output)
-                tower_dnn_logit = self.tower_dnn_final_layer[i](tower_dnn_out)
-            else:
-                tower_dnn_logit = self.tower_dnn_final_layer[i](shared_bottom_output)
-            output = self.out[i](tower_dnn_logit)
-            task_outs.append(output)
-        task_outs = torch.cat(task_outs, -1)
-        return task_outs

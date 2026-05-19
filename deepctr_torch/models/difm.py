@@ -78,29 +78,3 @@ class DIFM(BaseModel):
 
         self.to(device)
 
-    def forward(self, X):
-        sparse_embedding_list, _ = self.input_from_feature_columns(X, self.dnn_feature_columns,
-                                                                   self.embedding_dict)
-        if not len(sparse_embedding_list) > 0:
-            raise ValueError("there are no sparse features")
-
-        att_input = concat_fun(sparse_embedding_list, axis=1)
-        att_out = self.vector_wise_net(att_input)
-        att_out = att_out.reshape(att_out.shape[0], -1)
-        m_vec = self.transform_matrix_P_vec(att_out)
-
-        dnn_input = combined_dnn_input(sparse_embedding_list, [])
-        dnn_output = self.bit_wise_net(dnn_input)
-        m_bit = self.transform_matrix_P_bit(dnn_output)
-
-        m_x = m_vec + m_bit  # m_x is the complete input-aware factor
-
-        logit = self.linear_model(X, sparse_feat_refine_weight=m_x)
-
-        fm_input = torch.cat(sparse_embedding_list, dim=1)
-        refined_fm_input = fm_input * m_x.unsqueeze(-1)  # \textbf{v}_{x,i}=m_{x,i} * \textbf{v}_i
-        logit += self.fm(refined_fm_input)
-
-        y_pred = self.out(logit)
-
-        return y_pred

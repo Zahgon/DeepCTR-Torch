@@ -65,23 +65,3 @@ class IFM(BaseModel):
 
         self.to(device)
 
-    def forward(self, X):
-        sparse_embedding_list, _ = self.input_from_feature_columns(X, self.dnn_feature_columns,
-                                                                                  self.embedding_dict)
-        if not len(sparse_embedding_list) > 0:
-            raise ValueError("there are no sparse features")
-
-        dnn_input = combined_dnn_input(sparse_embedding_list, [])  # (batch_size, feat_num * embedding_size)
-        dnn_output = self.factor_estimating_net(dnn_input)
-        dnn_output = self.transform_weight_matrix_P(dnn_output)  # m'_{x}
-        input_aware_factor = self.sparse_feat_num * dnn_output.softmax(1)  # input_aware_factor m_{x,i}
-
-        logit = self.linear_model(X, sparse_feat_refine_weight=input_aware_factor)
-
-        fm_input = torch.cat(sparse_embedding_list, dim=1)
-        refined_fm_input = fm_input * input_aware_factor.unsqueeze(-1)  # \textbf{v}_{x,i}=m_{x,i}\textbf{v}_i
-        logit += self.fm(refined_fm_input)
-
-        y_pred = self.out(logit)
-
-        return y_pred

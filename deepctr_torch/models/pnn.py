@@ -75,35 +75,3 @@ class PNN(BaseModel):
 
         self.to(device)
 
-    def forward(self, X):
-
-        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns,
-                                                                                  self.embedding_dict)
-        linear_signal = torch.flatten(
-            concat_fun(sparse_embedding_list), start_dim=1)
-
-        if self.use_inner:
-            inner_product = torch.flatten(
-                self.innerproduct(sparse_embedding_list), start_dim=1)
-
-        if self.use_outter:
-            outer_product = self.outterproduct(sparse_embedding_list)
-
-        if self.use_outter and self.use_inner:
-            product_layer = torch.cat(
-                [linear_signal, inner_product, outer_product], dim=1)
-        elif self.use_outter:
-            product_layer = torch.cat([linear_signal, outer_product], dim=1)
-        elif self.use_inner:
-            product_layer = torch.cat([linear_signal, inner_product], dim=1)
-        else:
-            product_layer = linear_signal
-
-        dnn_input = combined_dnn_input([product_layer], dense_value_list)
-        dnn_output = self.dnn(dnn_input)
-        dnn_logit = self.dnn_linear(dnn_output)
-        logit = dnn_logit
-
-        y_pred = self.out(logit)
-
-        return y_pred

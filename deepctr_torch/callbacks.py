@@ -14,8 +14,6 @@ class Callback(object):
     def set_model(self, model):
         self.model = model
 
-    def set_params(self, params):
-        self.params = params or {}
 
     def on_train_begin(self, logs=None):
         pass
@@ -45,10 +43,6 @@ class CallbackList(object):
         for callback in self.callbacks:
             callback.set_model(model)
 
-    def set_params(self, params):
-        self.params = params or {}
-        for callback in self.callbacks:
-            callback.set_params(self.params)
 
     def on_train_begin(self, logs=None):
         for callback in self.callbacks:

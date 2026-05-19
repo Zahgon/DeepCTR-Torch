@@ -75,26 +75,5 @@ class MLR(BaseModel):
 
         self.to(self.device)
 
-    def get_region_score(self, inputs, region_number):
-        region_logit = torch.cat([self.region_linear_model[i](
-            inputs) for i in range(region_number)], dim=-1)
-        region_score = nn.Softmax(dim=-1)(region_logit)
-        return region_score
 
-    def get_learner_score(self, inputs, region_number):
-        learner_score = self.prediction_layer(torch.cat(
-            [self.region_linear_model[i](inputs) for i in range(region_number)], dim=-1))
-        return learner_score
 
-    def forward(self, X):
-
-        region_score = self.get_region_score(X, self.region_num)
-        learner_score = self.get_learner_score(X, self.region_num)
-
-        final_logit = torch.sum(
-            region_score * learner_score, dim=-1, keepdim=True)
-
-        if self.bias_feature_columns is not None and len(self.bias_feature_columns) > 0:
-            bias_score = self.bias_model(X)
-            final_logit = final_logit * bias_score
-        return final_logit

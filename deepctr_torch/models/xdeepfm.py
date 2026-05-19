@@ -76,32 +76,3 @@ class xDeepFM(BaseModel):
 
         self.to(device)
 
-    def forward(self, X):
-
-        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns,
-                                                                                  self.embedding_dict)
-
-        linear_logit = self.linear_model(X)
-        if self.use_cin:
-            cin_input = torch.cat(sparse_embedding_list, dim=1)
-            cin_output = self.cin(cin_input)
-            cin_logit = self.cin_linear(cin_output)
-        if self.use_dnn:
-            dnn_input = combined_dnn_input(sparse_embedding_list, dense_value_list)
-            dnn_output = self.dnn(dnn_input)
-            dnn_logit = self.dnn_linear(dnn_output)
-
-        if len(self.dnn_hidden_units) == 0 and len(self.cin_layer_size) == 0:  # only linear
-            final_logit = linear_logit
-        elif len(self.dnn_hidden_units) == 0 and len(self.cin_layer_size) > 0:  # linear + CIN
-            final_logit = linear_logit + cin_logit
-        elif len(self.dnn_hidden_units) > 0 and len(self.cin_layer_size) == 0:  # linear +　Deep
-            final_logit = linear_logit + dnn_logit
-        elif len(self.dnn_hidden_units) > 0 and len(self.cin_layer_size) > 0:  # linear + CIN + Deep
-            final_logit = linear_logit + dnn_logit + cin_logit
-        else:
-            raise NotImplementedError
-
-        y_pred = self.out(final_logit)
-
-        return y_pred

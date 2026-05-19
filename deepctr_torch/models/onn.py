@@ -18,8 +18,6 @@ class Interac(nn.Module):
         self.emb2 = nn.Embedding(second_size, emb_size, sparse=sparse)
         self.__init_weight(init_std)
 
-    def __init_weight(self, init_std):
-        nn.init.normal_(self.emb1.weight, mean=0, std=init_std)
 
     def forward(self, first, second):
         """
@@ -28,10 +26,7 @@ class Interac(nn.Module):
         output:
             y batch_size * emb_size
         """
-        first_emb = self.emb1(first)
-        second_emb = self.emb2(second)
-        y = first_emb * second_emb  # core code
-        return y
+        pass
 
 
 class ONN(BaseModel):
@@ -86,14 +81,6 @@ class ONN(BaseModel):
         self.add_regularization_weight(self.dnn_linear.weight, l2=l2_reg_dnn)
         self.to(device)
 
-    def __compute_nffm_dnn_dim(self, feature_columns, embedding_size):
-        sparse_feature_columns = list(
-            filter(lambda x: isinstance(x, SparseFeat), feature_columns)) if len(feature_columns) else []
-        dense_feature_columns = list(
-            filter(lambda x: isinstance(x, DenseFeat), feature_columns)) if len(feature_columns) else []
-
-        return int(len(sparse_feature_columns) * (len(sparse_feature_columns) - 1) / 2 * embedding_size +
-                   sum(map(lambda x: x.dimension, dense_feature_columns)))
 
     def __input_from_second_order_column(self, X, feature_columns, second_order_embedding_dict):
         '''
@@ -102,57 +89,6 @@ class ONN(BaseModel):
         :param second_order_embedding_dict: ex: {'A1+A2': Interac model} created by function create_second_order_embedding_matrix
         :return:
         '''
-        sparse_feature_columns = list(
-            filter(lambda x: isinstance(x, SparseFeat), feature_columns)) if len(feature_columns) else []
-        second_order_embedding_list = []
-        for first_index in range(len(sparse_feature_columns) - 1):
-            for second_index in range(first_index + 1, len(sparse_feature_columns)):
-                first_name = sparse_feature_columns[first_index].embedding_name
-                second_name = sparse_feature_columns[second_index].embedding_name
-                second_order_embedding_list.append(
-                    second_order_embedding_dict[first_name + "+" + second_name](
-                        X[:, self.feature_index[first_name][0]
-                             :self.feature_index[first_name][1]].long(),
-                        X[:, self.feature_index[second_name][0]
-                             :self.feature_index[second_name][1]].long()
-                    )
-                )
-        return second_order_embedding_list
+        pass
 
-    def __create_second_order_embedding_matrix(self, feature_columns, embedding_size, init_std=0.0001, sparse=False):
 
-        sparse_feature_columns = list(
-            filter(lambda x: isinstance(x, SparseFeat), feature_columns)) if len(feature_columns) else []
-        temp_dict = {}
-        for first_index in range(len(sparse_feature_columns) - 1):
-            for second_index in range(first_index + 1, len(sparse_feature_columns)):
-                first_name = sparse_feature_columns[first_index].embedding_name
-                second_name = sparse_feature_columns[second_index].embedding_name
-                temp_dict[first_name + "+" + second_name] = Interac(sparse_feature_columns[first_index].vocabulary_size,
-                                                                    sparse_feature_columns[
-                                                                        second_index].vocabulary_size,
-                                                                    emb_size=embedding_size,
-                                                                    init_std=init_std,
-                                                                    sparse=sparse)
-        return nn.ModuleDict(temp_dict)
-
-    def forward(self, X):
-
-        _, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns,
-                                                              self.embedding_dict)
-        linear_logit = self.linear_model(X)
-        spare_second_order_embedding_list = self.__input_from_second_order_column(X, self.dnn_feature_columns,
-                                                                                  self.second_order_embedding_dict)
-        dnn_input = combined_dnn_input(
-            spare_second_order_embedding_list, dense_value_list)
-        dnn_output = self.dnn(dnn_input)
-        dnn_logit = self.dnn_linear(dnn_output)
-
-        if len(self.dnn_feature_columns) > 0:
-            final_logit = dnn_logit + linear_logit
-        else:
-            final_logit = linear_logit
-
-        y_pred = self.out(final_logit)
-
-        return y_pred

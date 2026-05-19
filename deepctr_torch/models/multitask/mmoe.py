@@ -106,38 +106,3 @@ class MMOE(BaseModel):
                 filter(lambda x: 'weight' in x[0] and 'bn' not in x[0], module.named_parameters()), l2=l2_reg_dnn)
         self.to(device)
 
-    def forward(self, X):
-        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns,
-                                                                                  self.embedding_dict)
-        dnn_input = combined_dnn_input(sparse_embedding_list, dense_value_list)
-
-        # expert dnn
-        expert_outs = []
-        for i in range(self.num_experts):
-            expert_out = self.expert_dnn[i](dnn_input)
-            expert_outs.append(expert_out)
-        expert_outs = torch.stack(expert_outs, 1)  # (bs, num_experts, dim)
-
-        # gate dnn
-        mmoe_outs = []
-        for i in range(self.num_tasks):
-            if len(self.gate_dnn_hidden_units) > 0:
-                gate_dnn_out = self.gate_dnn[i](dnn_input)
-                gate_dnn_out = self.gate_dnn_final_layer[i](gate_dnn_out)
-            else:
-                gate_dnn_out = self.gate_dnn_final_layer[i](dnn_input)
-            gate_mul_expert = torch.matmul(gate_dnn_out.softmax(1).unsqueeze(1), expert_outs)  # (bs, 1, dim)
-            mmoe_outs.append(gate_mul_expert.squeeze(1))
-
-        # tower dnn (task-specific)
-        task_outs = []
-        for i in range(self.num_tasks):
-            if len(self.tower_dnn_hidden_units) > 0:
-                tower_dnn_out = self.tower_dnn[i](mmoe_outs[i])
-                tower_dnn_logit = self.tower_dnn_final_layer[i](tower_dnn_out)
-            else:
-                tower_dnn_logit = self.tower_dnn_final_layer[i](mmoe_outs[i])
-            output = self.out[i](tower_dnn_logit)
-            task_outs.append(output)
-        task_outs = torch.cat(task_outs, -1)
-        return task_outs

@@ -55,20 +55,3 @@ class AFN(BaseModel):
         self.afn_dnn_linear = nn.Linear(afn_dnn_hidden_units[-1], 1)
         self.to(device)
     
-    def forward(self, X):
-
-        sparse_embedding_list, _ = self.input_from_feature_columns(X, self.dnn_feature_columns,
-                                                                   self.embedding_dict)
-        logit = self.linear_model(X)
-        if len(sparse_embedding_list) == 0:
-            raise ValueError('Sparse embeddings not provided. AFN only accepts sparse embeddings as input.')
-            
-        afn_input = torch.cat(sparse_embedding_list, dim=1)
-        ltl_result = self.ltl(afn_input)
-        afn_logit = self.afn_dnn(ltl_result)
-        afn_logit = self.afn_dnn_linear(afn_logit)
-        
-        logit += afn_logit
-        y_pred = self.out(logit)
-        
-        return y_pred

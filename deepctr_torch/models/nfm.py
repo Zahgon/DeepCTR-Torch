@@ -57,22 +57,3 @@ class NFM(BaseModel):
             self.dropout = nn.Dropout(bi_dropout)
         self.to(device)
 
-    def forward(self, X):
-
-        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns,
-                                                                                  self.embedding_dict)
-        linear_logit = self.linear_model(X)
-        fm_input = torch.cat(sparse_embedding_list, dim=1)
-        bi_out = self.bi_pooling(fm_input)
-        if self.bi_dropout:
-            bi_out = self.dropout(bi_out)
-
-        dnn_input = combined_dnn_input([bi_out], dense_value_list)
-        dnn_output = self.dnn(dnn_input)
-        dnn_logit = self.dnn_linear(dnn_output)
-
-        logit = linear_logit + dnn_logit
-
-        y_pred = self.out(logit)
-
-        return y_pred

@@ -32,17 +32,6 @@ class Dice(nn.Module):
         else:
             self.alpha = nn.Parameter(torch.zeros((emb_size, 1)).to(device))
 
-    def forward(self, x):
-        assert x.dim() == self.dim
-        if self.dim == 2:
-            x_p = self.sigmoid(self.bn(x))
-            out = self.alpha * (1 - x_p) * x + x_p * x
-        else:
-            x = torch.transpose(x, 1, 2)
-            x_p = self.sigmoid(self.bn(x))
-            out = self.alpha * (1 - x_p) * x + x_p * x
-            out = torch.transpose(out, 1, 2)
-        return out
 
 
 class Identity(nn.Module):
@@ -50,8 +39,6 @@ class Identity(nn.Module):
     def __init__(self, **kwargs):
         super(Identity, self).__init__()
 
-    def forward(self, inputs):
-        return inputs
 
 
 def activation_layer(act_name, hidden_size=None, dice_dim=2):

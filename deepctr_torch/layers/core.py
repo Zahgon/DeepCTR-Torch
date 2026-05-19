@@ -48,20 +48,6 @@ class LocalActivationUnit(nn.Module):
 
         self.dense = nn.Linear(hidden_units[-1], 1)
 
-    def forward(self, query, user_behavior):
-        # query ad            : size -> batch_size * 1 * embedding_size
-        # user behavior       : size -> batch_size * time_seq_len * embedding_size
-        user_behavior_len = user_behavior.size(1)
-
-        queries = query.expand(-1, user_behavior_len, -1)
-
-        attention_input = torch.cat([queries, user_behavior, queries - user_behavior, queries * user_behavior],
-                                    dim=-1)  # as the source code, subtraction simulates verctors' difference
-        attention_output = self.dnn(attention_input)
-
-        attention_score = self.dense(attention_output)  # [B, T, 1]
-
-        return attention_score
 
 
 class DNN(nn.Module):
@@ -117,21 +103,6 @@ class DNN(nn.Module):
 
         self.to(device)
 
-    def forward(self, inputs):
-        deep_input = inputs
-
-        for i in range(len(self.linears)):
-
-            fc = self.linears[i](deep_input)
-
-            if self.use_bn:
-                fc = self.bn[i](fc)
-
-            fc = self.activation_layers[i](fc)
-
-            fc = self.dropout(fc)
-            deep_input = fc
-        return deep_input
 
 
 class PredictionLayer(nn.Module):
@@ -151,13 +122,6 @@ class PredictionLayer(nn.Module):
         if self.use_bias:
             self.bias = nn.Parameter(torch.zeros((1,)))
 
-    def forward(self, X):
-        output = X
-        if self.use_bias:
-            output += self.bias
-        if self.task == "binary":
-            output = torch.sigmoid(output)
-        return output
 
 
 class Conv2dSame(nn.Conv2d):
@@ -171,15 +135,3 @@ class Conv2dSame(nn.Conv2d):
             groups, bias)
         nn.init.xavier_uniform_(self.weight)
 
-    def forward(self, x):
-        ih, iw = x.size()[-2:]
-        kh, kw = self.weight.size()[-2:]
-        oh = math.ceil(ih / self.stride[0])
-        ow = math.ceil(iw / self.stride[1])
-        pad_h = max((oh - 1) * self.stride[0] + (kh - 1) * self.dilation[0] + 1 - ih, 0)
-        pad_w = max((ow - 1) * self.stride[1] + (kw - 1) * self.dilation[1] + 1 - iw, 0)
-        if pad_h > 0 or pad_w > 0:
-            x = F.pad(x, [pad_w // 2, pad_w - pad_w // 2, pad_h // 2, pad_h - pad_h // 2])
-        out = F.conv2d(x, self.weight, self.bias, self.stride,
-                       self.padding, self.dilation, self.groups)
-        return out

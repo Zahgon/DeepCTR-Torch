@@ -66,18 +66,3 @@ class CCPM(BaseModel):
 
         self.to(device)
 
-    def forward(self, X):
-        linear_logit = self.linear_model(X)
-        sparse_embedding_list, _ = self.input_from_feature_columns(X, self.dnn_feature_columns,
-                                                                   self.embedding_dict, support_dense=False)
-        if len(sparse_embedding_list) == 0:
-            raise ValueError("must have the embedding feature,now the embedding feature is None!")
-        conv_input = concat_fun(sparse_embedding_list, axis=1)
-        conv_input_concact = torch.unsqueeze(conv_input, 1)
-        pooling_result = self.conv_layer(conv_input_concact)
-        flatten_result = pooling_result.view(pooling_result.size(0), -1)
-        dnn_output = self.dnn(flatten_result)
-        dnn_logit = self.dnn_linear(dnn_output)
-        logit = linear_logit + dnn_logit
-        y_pred = self.out(logit)
-        return y_pred

@@ -50,17 +50,3 @@ class AFM(BaseModel):
 
         self.to(device)
 
-    def forward(self, X):
-
-        sparse_embedding_list, _ = self.input_from_feature_columns(X, self.dnn_feature_columns,
-                                                                   self.embedding_dict, support_dense=False)
-        logit = self.linear_model(X)
-        if len(sparse_embedding_list) > 0:
-            if self.use_attention:
-                logit += self.fm(sparse_embedding_list)
-            else:
-                logit += self.fm(torch.cat(sparse_embedding_list, dim=1))
-
-        y_pred = self.out(logit)
-
-        return y_pred

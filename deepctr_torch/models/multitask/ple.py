@@ -69,14 +69,6 @@ class PLE(BaseModel):
         self.gate_dnn_hidden_units = gate_dnn_hidden_units
         self.tower_dnn_hidden_units = tower_dnn_hidden_units
 
-        def multi_module_list(num_level, num_tasks, expert_num, inputs_dim_level0, inputs_dim_not_level0, hidden_units):
-            return nn.ModuleList(
-                [nn.ModuleList([nn.ModuleList([DNN(inputs_dim_level0 if level_num == 0 else inputs_dim_not_level0,
-                                                   hidden_units, activation=dnn_activation,
-                                                   l2_reg=l2_reg_dnn, dropout_rate=dnn_dropout, use_bn=dnn_use_bn,
-                                                   init_std=init_std, device=device) for _ in
-                                               range(expert_num)])
-                                for _ in range(num_tasks)]) for level_num in range(num_level)])
 
         # 1. experts
         # task-specific experts
@@ -144,76 +136,4 @@ class PLE(BaseModel):
         self.to(device)
 
     # a single cgc Layer
-    def cgc_net(self, inputs, level_num):
-        # inputs: [task1, task2, ... taskn, shared task]
 
-        # 1. experts
-        # task-specific experts
-        specific_expert_outputs = []
-        for i in range(self.num_tasks):
-            for j in range(self.specific_expert_num):
-                specific_expert_output = self.specific_experts[level_num][i][j](inputs[i])
-                specific_expert_outputs.append(specific_expert_output)
-
-        # shared experts
-        shared_expert_outputs = []
-        for k in range(self.shared_expert_num):
-            shared_expert_output = self.shared_experts[level_num][0][k](inputs[-1])
-            shared_expert_outputs.append(shared_expert_output)
-
-        # 2. gates
-        # gates for task-specific experts
-        cgc_outs = []
-        for i in range(self.num_tasks):
-            # concat task-specific expert and task-shared expert
-            cur_experts_outputs = specific_expert_outputs[
-                                  i * self.specific_expert_num:(i + 1) * self.specific_expert_num] + shared_expert_outputs
-            cur_experts_outputs = torch.stack(cur_experts_outputs, 1)
-
-            # gate dnn
-            if len(self.gate_dnn_hidden_units) > 0:
-                gate_dnn_out = self.specific_gate_dnn[level_num][i][0](inputs[i])
-                gate_dnn_out = self.specific_gate_dnn_final_layer[level_num][i](gate_dnn_out)
-            else:
-                gate_dnn_out = self.specific_gate_dnn_final_layer[level_num][i](inputs[i])
-            gate_mul_expert = torch.matmul(gate_dnn_out.softmax(1).unsqueeze(1), cur_experts_outputs)  # (bs, 1, dim)
-            cgc_outs.append(gate_mul_expert.squeeze(1))
-
-        # gates for shared experts
-        cur_experts_outputs = specific_expert_outputs + shared_expert_outputs
-        cur_experts_outputs = torch.stack(cur_experts_outputs, 1)
-
-        if len(self.gate_dnn_hidden_units) > 0:
-            gate_dnn_out = self.shared_gate_dnn[level_num](inputs[-1])
-            gate_dnn_out = self.shared_gate_dnn_final_layer[level_num](gate_dnn_out)
-        else:
-            gate_dnn_out = self.shared_gate_dnn_final_layer[level_num](inputs[-1])
-        gate_mul_expert = torch.matmul(gate_dnn_out.softmax(1).unsqueeze(1), cur_experts_outputs)  # (bs, 1, dim)
-        cgc_outs.append(gate_mul_expert.squeeze(1))
-
-        return cgc_outs
-
-    def forward(self, X):
-        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns,
-                                                                                  self.embedding_dict)
-        dnn_input = combined_dnn_input(sparse_embedding_list, dense_value_list)
-
-        # repeat `dnn_input` for several times to generate cgc input
-        ple_inputs = [dnn_input] * (self.num_tasks + 1)  # [task1, task2, ... taskn, shared task]
-        ple_outputs = []
-        for i in range(self.num_levels):
-            ple_outputs = self.cgc_net(inputs=ple_inputs, level_num=i)
-            ple_inputs = ple_outputs
-
-        # tower dnn (task-specific)
-        task_outs = []
-        for i in range(self.num_tasks):
-            if len(self.tower_dnn_hidden_units) > 0:
-                tower_dnn_out = self.tower_dnn[i](ple_outputs[i])
-                tower_dnn_logit = self.tower_dnn_final_layer[i](tower_dnn_out)
-            else:
-                tower_dnn_logit = self.tower_dnn_final_layer[i](ple_outputs[i])
-            output = self.out[i](tower_dnn_logit)
-            task_outs.append(output)
-        task_outs = torch.cat(task_outs, -1)
-        return task_outs

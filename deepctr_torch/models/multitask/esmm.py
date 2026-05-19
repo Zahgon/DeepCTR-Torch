@@ -74,21 +74,3 @@ class ESMM(BaseModel):
         self.add_regularization_weight(self.cvr_dnn_final_layer.weight, l2=l2_reg_dnn)
         self.to(device)
 
-    def forward(self, X):
-        sparse_embedding_list, dense_value_list = self.input_from_feature_columns(X, self.dnn_feature_columns,
-                                                                                  self.embedding_dict)
-        dnn_input = combined_dnn_input(sparse_embedding_list, dense_value_list)
-
-        ctr_output = self.ctr_dnn(dnn_input)
-        cvr_output = self.cvr_dnn(dnn_input)
-
-        ctr_logit = self.ctr_dnn_final_layer(ctr_output)
-        cvr_logit = self.cvr_dnn_final_layer(cvr_output)
-
-        ctr_pred = self.out(ctr_logit)
-        cvr_pred = self.out(cvr_logit)
-
-        ctcvr_pred = ctr_pred * cvr_pred  # CTCVR = CTR * CVR
-
-        task_outs = torch.cat([ctr_pred, ctcvr_pred], -1)
-        return task_outs
